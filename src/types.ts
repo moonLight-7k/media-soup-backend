@@ -3,6 +3,7 @@ import { types as mediasoupTypes } from "mediasoup";
 // Room management
 export interface Room {
   id: string;
+  hostUserId: string; // UUID of the host
   createdBy: string; 
   participants: Map<
     string,
