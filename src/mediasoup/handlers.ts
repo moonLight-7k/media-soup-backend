@@ -3,7 +3,8 @@ import { types as mediasoupTypes } from "mediasoup";
 import { createWebRtcTransport } from "./transport";
 import logger from "../logger";
 import { v4 as uuidv4 } from "uuid";
-import { Room } from "../types";
+import { Room, SocketHandler } from "../types";
+import { wrapHandler } from "../utils";
 
 export const registerMediasoupHandlers = (
   io: ReturnType<Server["of"]>,
@@ -12,143 +13,146 @@ export const registerMediasoupHandlers = (
   rooms: Map<string, Room>
 ) => {
   io.on("connection", async (socket) => {
-    // Extract userId and userName from connection query
-    const { userId: clientUserId, userName: clientUserName } = socket.handshake.query;
+    const { userId: clientUserId, userName: clientUserName } =
+      socket.handshake.query;
 
-    logger.info(`[SOCKET] Peer connected: ${socket.id}, ClientUserId: ${clientUserId}, UserName: ${clientUserName}`);
+    logger.info(
+      `[SOCKET] Peer connected: ${socket.id}, ClientUserId: ${clientUserId}, UserName: ${clientUserName}`
+    );
 
     let currentRoom: Room | null = null;
     let currentUserId: string | null = null;
     let currentUserName: string | null = null;
 
-    // Store user info on socket for easy access
+    // Storing user info on socket
     socket.data.userId = clientUserId as string;
     socket.data.userName = clientUserName as string;
 
     socket.emit("connection-success", {
       socketId: socket.id,
-      userId: clientUserId,
-      userName: clientUserName,
+      userId: socket.data.userId,
+      userName: socket.data.userName,
     });
 
-    // Wrap all event handlers in a global try-catch to prevent crashes
-    const wrapHandler = (event: string, handler: (...args: any[]) => void) => {
-      socket.on(event, async (...args) => {
-        try {
-          await handler(...args);
-        } catch (error: any) {
-          logger.error(
-            `Error in ${event} handler for socket ${socket.id}: ${error.message}`
+    // Join Room
+    wrapHandler(
+      socket,
+      "joinRoom",
+      async ({ roomId, userName, userId }, callback) => {
+        if (typeof callback !== "function") {
+          logger.warn(
+            `No valid callback provided for joinRoom from ${socket.id}`
           );
-          // If the last argument is a callback, invoke it with an error
-          const callback = args[args.length - 1];
-          if (typeof callback === "function") {
-            callback({ error: `Server error in ${event}: ${error.message}` });
+          return;
+        }
+
+        logger.info(
+          `[SOCKET] ${socket.id} attempting to join room: ${roomId} as ${
+            userName || "Anonymous"
+          }`
+        );
+
+        const room = rooms.get(roomId);
+        if (!room) {
+          return callback({ error: "Room not found" });
+        }
+
+        // Use provided userId or generate new one
+        const finalUserId = userId || uuidv4();
+        const finalUserName = userName || "Anonymous";
+
+        currentUserId = finalUserId;
+        currentUserName = finalUserName;
+        currentRoom = room;
+
+        // Update socket data
+        socket.data.userId = finalUserId;
+        socket.data.userName = finalUserName;
+
+        // Check if user is already in room (reconnection case)
+        let existingParticipant = null;
+        for (const [socketId, participant] of room.participants.entries()) {
+          if (participant.userId === finalUserId) {
+            existingParticipant = participant;
+            // Remove old socket entry
+            room.participants.delete(socketId);
+            logger.warn(
+              `[ROOM] Duplicate join detected for userId: ${finalUserId} in room: ${roomId}`
+            );
+            break;
           }
         }
-      });
-    };
 
-    // Join Room Handler
-    wrapHandler("joinRoom", async ({ roomId, userName, userId }, callback) => {
-      if (typeof callback !== "function") {
-        logger.warn(
-          `No valid callback provided for joinRoom from ${socket.id}`
-        );
-        return;
-      }
+        // Determine if user is host
+        const isHost =
+          existingParticipant?.isHost || room.participants.size === 0;
 
-      logger.info(`[SOCKET] ${socket.id} attempting to join room: ${roomId} as ${userName || "Anonymous"}`);
-
-      const room = rooms.get(roomId);
-      if (!room) {
-        return callback({ error: "Room not found" });
-      }
-
-      // Use provided userId or generate new one
-      const finalUserId = userId || uuidv4();
-      const finalUserName = userName || "Anonymous";
-
-      currentUserId = finalUserId;
-      currentUserName = finalUserName;
-      currentRoom = room;
-
-      // Update socket data
-      socket.data.userId = finalUserId;
-      socket.data.userName = finalUserName;
-
-      // Check if user is already in room (reconnection case)
-      let existingParticipant = null;
-      for (const [socketId, participant] of room.participants.entries()) {
-        if (participant.userId === finalUserId) {
-          existingParticipant = participant;
-          // Remove old socket entry
-          room.participants.delete(socketId);
-          logger.warn(`[ROOM] Duplicate join detected for userId: ${finalUserId} in room: ${roomId}`);
-          break;
-        }
-      }
-
-      // Determine if user is host
-      const isHost =
-        existingParticipant?.isHost || room.participants.size === 0;
-
-      // Add participant to room with new socket ID
-      room.participants.set(socket.id, {
-        socketId: socket.id,
-        userId: finalUserId,
-        name: finalUserName,
-        joinedAt: existingParticipant?.joinedAt || new Date(),
-        isHost,
-      });
-
-      // Join socket room
-      socket.join(roomId);
-
-      // Get existing producers in the room (exclude own producers)
-      const existingProducers = Array.from(room.producers.entries())
-        .filter(([key]) => {
-          const [socketId] = key.split("-");
-          const participant = room.participants.get(socketId);
-          return participant && participant.userId !== finalUserId;
-        })
-        .map(([key, producer]) => {
-          const [socketId] = key.split("-");
-          const participant = room.participants.get(socketId);
-          return {
-            producerId: producer.id,
-            socketId: socketId,
-            userId: participant?.userId,
-            kind: producer.kind,
-          };
+        // Add participant to room with new socket ID
+        room.participants.set(socket.id, {
+          socketId: socket.id,
+          userId: finalUserId,
+          name: finalUserName,
+          joinedAt: existingParticipant?.joinedAt || new Date(),
+          isHost,
         });
 
-      // Notify others about peer joined/rejoined
-      socket.to(roomId).emit("peer-joined", {
-        socketId: socket.id,
-        userId: finalUserId,
-        userName: finalUserName,
-        isHost,
-        isReconnection: !!existingParticipant,
-      });
+        // Join socket room
+        socket.join(roomId);
 
-      // Send success response with room info
-      callback({
-        success: true,
-        roomId,
-        userId: finalUserId,
-        isHost,
-        participants: Array.from(room.participants.values()),
-        existingProducers,
-        messages: room.messages.slice(-50),
-      });
+        // Get existing producers in the room (exclude own producers)
+        const existingProducers = Array.from(room.producers.entries())
+          .filter(([key]) => {
+            const [socketId] = key.split("-");
+            const participant = room.participants.get(socketId);
+            return participant && participant.userId !== finalUserId;
+          })
+          .map(([key, producer]) => {
+            const [socketId] = key.split("-");
+            const participant = room.participants.get(socketId);
+            return {
+              producerId: producer.id,
+              socketId: socketId,
+              userId: participant?.userId,
+              kind: producer.kind,
+            };
+          });
 
-      logger.info(`[ROOM] ${finalUserName} (${finalUserId}) joined room ${roomId} as ${isHost ? "host" : "participant"}. Total participants: ${room.participants.size}`);
-      logger.debug(`[ROOM] State after join: ${JSON.stringify({ id: roomId, participants: Array.from(room.participants.values()) })}`);
-    });
+        // Notify others about peer joined/rejoined
+        socket.to(roomId).emit("peer-joined", {
+          socketId: socket.id,
+          userId: finalUserId,
+          userName: finalUserName,
+          isHost,
+          isReconnection: !!existingParticipant,
+        });
+
+        // Send success response with room info
+        callback({
+          success: true,
+          roomId,
+          userId: finalUserId,
+          isHost,
+          participants: Array.from(room.participants.values()),
+          existingProducers,
+          messages: room.messages.slice(-50),
+        });
+
+        logger.info(
+          `[ROOM] ${finalUserName} (${finalUserId}) joined room ${roomId} as ${
+            isHost ? "host" : "participant"
+          }. Total participants: ${room.participants.size}`
+        );
+        logger.debug(
+          `[ROOM] State after join: ${JSON.stringify({
+            id: roomId,
+            participants: Array.from(room.participants.values()),
+          })}`
+        );
+      }
+    );
 
     // Chat Message Handler
-    wrapHandler("sendMessage", ({ roomId, message }, callback) => {
+    wrapHandler(socket, "sendMessage", ({ roomId, message }, callback) => {
       if (typeof callback !== "function") {
         logger.warn(
           `No valid callback provided for sendMessage from ${socket.id}`
@@ -184,7 +188,7 @@ export const registerMediasoupHandlers = (
     });
 
     // Get Router RTP Capabilities
-    wrapHandler("getRouterRtpCapabilities", (callback) => {
+    wrapHandler(socket, "getRouterRtpCapabilities", (callback) => {
       if (typeof callback !== "function") {
         logger.warn(
           `No valid callback provided for getRouterRtpCapabilities from ${socket.id}`
@@ -197,7 +201,7 @@ export const registerMediasoupHandlers = (
     });
 
     // Create Producer Transport
-    wrapHandler("createProducerTransport", async (callback) => {
+    wrapHandler(socket, "createProducerTransport", async (callback) => {
       if (typeof callback !== "function") {
         logger.warn(
           `No valid callback provided for createProducerTransport from ${socket.id}`
@@ -236,7 +240,7 @@ export const registerMediasoupHandlers = (
     });
 
     // Create Consumer Transport
-    wrapHandler("createConsumerTransport", async (callback) => {
+    wrapHandler(socket, "createConsumerTransport", async (callback) => {
       if (typeof callback !== "function") {
         logger.warn(
           `No valid callback provided for createConsumerTransport from ${socket.id}`
@@ -276,6 +280,7 @@ export const registerMediasoupHandlers = (
 
     // Connect Producer Transport
     wrapHandler(
+      socket,
       "connectProducerTransport",
       async ({ dtlsParameters }, callback) => {
         if (typeof callback !== "function") {
@@ -303,6 +308,7 @@ export const registerMediasoupHandlers = (
 
     // Connect Consumer Transport
     wrapHandler(
+      socket,
       "connectConsumerTransport",
       async ({ dtlsParameters }, callback) => {
         if (typeof callback !== "function") {
@@ -329,55 +335,62 @@ export const registerMediasoupHandlers = (
     );
 
     // Produce Media
-    wrapHandler("produce", async ({ kind, rtpParameters }, callback) => {
-      if (typeof callback !== "function") {
-        logger.warn(`No valid callback provided for produce from ${socket.id}`);
-        return;
+    wrapHandler(
+      socket,
+      "produce",
+      async ({ kind, rtpParameters }, callback) => {
+        if (typeof callback !== "function") {
+          logger.warn(
+            `No valid callback provided for produce from ${socket.id}`
+          );
+          return;
+        }
+
+        if (!currentRoom) {
+          return callback({ error: "Not in a room" });
+        }
+
+        const transport = currentRoom.producerTransports.get(socket.id);
+        if (!transport) {
+          return callback({ error: "Producer transport not found" });
+        }
+
+        // Close existing producer of same kind for this socket
+        const existingProducerKey = `${socket.id}-${kind}`;
+        const existingProducer = currentRoom.producers.get(existingProducerKey);
+        if (existingProducer) {
+          existingProducer.close();
+          currentRoom.producers.delete(existingProducerKey);
+        }
+
+        const producer = await transport.produce({ kind, rtpParameters });
+        currentRoom.producers.set(existingProducerKey, producer);
+
+        producer.on("transportclose", () => {
+          logger.info(`Producer transport closed: ${producer.id}`);
+          producer.close();
+          currentRoom?.producers.delete(existingProducerKey);
+        });
+
+        // Notify others about new producer
+        socket.to(currentRoom.id).emit("newProducer", {
+          producerId: producer.id,
+          socketId: socket.id,
+          userId: currentUserId,
+          kind: producer.kind,
+        });
+
+        callback({ id: producer.id });
+
+        logger.info(
+          `Producer created: ${producer.id} (${kind}) for ${socket.id} (User: ${currentUserId})`
+        );
       }
-
-      if (!currentRoom) {
-        return callback({ error: "Not in a room" });
-      }
-
-      const transport = currentRoom.producerTransports.get(socket.id);
-      if (!transport) {
-        return callback({ error: "Producer transport not found" });
-      }
-
-      // Close existing producer of same kind for this socket
-      const existingProducerKey = `${socket.id}-${kind}`;
-      const existingProducer = currentRoom.producers.get(existingProducerKey);
-      if (existingProducer) {
-        existingProducer.close();
-        currentRoom.producers.delete(existingProducerKey);
-      }
-
-      const producer = await transport.produce({ kind, rtpParameters });
-      currentRoom.producers.set(existingProducerKey, producer);
-
-      producer.on("transportclose", () => {
-        logger.info(`Producer transport closed: ${producer.id}`);
-        producer.close();
-        currentRoom?.producers.delete(existingProducerKey);
-      });
-
-      // Notify others about new producer
-      socket.to(currentRoom.id).emit("newProducer", {
-        producerId: producer.id,
-        socketId: socket.id,
-        userId: currentUserId,
-        kind: producer.kind,
-      });
-
-      callback({ id: producer.id });
-
-      logger.info(
-        `Producer created: ${producer.id} (${kind}) for ${socket.id} (User: ${currentUserId})`
-      );
-    });
+    );
 
     // Consume Media
     wrapHandler(
+      socket,
       "consume",
       async ({ producerId, rtpCapabilities }, callback) => {
         if (typeof callback !== "function") {
@@ -436,7 +449,7 @@ export const registerMediasoupHandlers = (
     );
 
     // Resume Consumer
-    wrapHandler("resumeConsumer", async ({ consumerId }, callback) => {
+    wrapHandler(socket, "resumeConsumer", async ({ consumerId }, callback) => {
       if (typeof callback !== "function") {
         logger.warn(
           `No valid callback provided for resumeConsumer from ${socket.id}`
@@ -459,7 +472,7 @@ export const registerMediasoupHandlers = (
     });
 
     // Pause Consumer
-    wrapHandler("pauseConsumer", async ({ consumerId }, callback) => {
+    wrapHandler(socket, "pauseConsumer", async ({ consumerId }, callback) => {
       if (typeof callback !== "function") {
         logger.warn(
           `No valid callback provided for pauseConsumer from ${socket.id}`
@@ -482,7 +495,7 @@ export const registerMediasoupHandlers = (
     });
 
     // Get Producers
-    wrapHandler("getProducers", (callback) => {
+    wrapHandler(socket, "getProducers", (callback) => {
       if (typeof callback !== "function") {
         logger.warn(
           `No valid callback provided for getProducers from ${socket.id}`
@@ -521,8 +534,10 @@ export const registerMediasoupHandlers = (
     });
 
     // Handle Disconnect
-    wrapHandler("disconnect", (reason) => {
-      logger.info(`[SOCKET] Peer disconnected: ${socket.id} (Reason: ${reason})`);
+    wrapHandler(socket, "disconnect", (reason) => {
+      logger.info(
+        `[SOCKET] Peer disconnected: ${socket.id} (Reason: ${reason})`
+      );
 
       if (currentRoom && currentUserId) {
         const participant = currentRoom.participants.get(socket.id);
@@ -575,8 +590,15 @@ export const registerMediasoupHandlers = (
           userName: participant?.name,
         });
 
-        logger.info(`[ROOM] ${participant?.name} (${currentUserId}) left room ${currentRoom.id}. Remaining participants: ${currentRoom.participants.size}`);
-        logger.debug(`[ROOM] State after leave: ${JSON.stringify({ id: currentRoom.id, participants: Array.from(currentRoom.participants.values()) })}`);
+        logger.info(
+          `[ROOM] ${participant?.name} (${currentUserId}) left room ${currentRoom.id}. Remaining participants: ${currentRoom.participants.size}`
+        );
+        logger.debug(
+          `[ROOM] State after leave: ${JSON.stringify({
+            id: currentRoom.id,
+            participants: Array.from(currentRoom.participants.values()),
+          })}`
+        );
 
         // Clean up room if empty
         if (currentRoom.participants.size === 0) {
@@ -591,10 +613,14 @@ export const registerMediasoupHandlers = (
           currentRoom.consumers.forEach((consumer) => consumer.close());
 
           // rooms.delete(currentRoom.id);
-          logger.info(`[ROOM] Deleted: ${currentRoom.id} (empty after disconnect)`);
+          logger.info(
+            `[ROOM] Deleted: ${currentRoom.id} (empty after disconnect)`
+          );
         }
 
-        logger.info(`[SOCKET] Cleaned up resources for ${socket.id} (User: ${currentUserId}) in room ${currentRoom.id}`);
+        logger.info(
+          `[SOCKET] Cleaned up resources for ${socket.id} (User: ${currentUserId}) in room ${currentRoom.id}`
+        );
       }
     });
   });

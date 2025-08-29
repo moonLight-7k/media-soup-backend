@@ -3,7 +3,6 @@ import chalk from "chalk";
 import fs from "fs";
 import path from "path";
 
-// Define log levels
 const levels = {
   error: 0,
   warn: 1,
@@ -16,7 +15,6 @@ const levels = {
 
 type Level = keyof typeof levels;
 
-// Define colors for each level using chalk
 const colors: Record<Level, (msg: string) => string> = {
   error: chalk.red,
   warn: chalk.yellow,
@@ -27,29 +25,34 @@ const colors: Record<Level, (msg: string) => string> = {
   silly: chalk.gray,
 };
 
-// Create log directory if it doesn't exist
 const logDir = path.join(__dirname, "../debug");
 if (!fs.existsSync(logDir)) {
   fs.mkdirSync(logDir, { recursive: true });
 }
 
-// Get current date for log filename
-const currentDate = new Date().toISOString().split("T")[0]; // YYYY-MM-DD
+const currentDate = new Date().toISOString().split("T")[0];
 const logFilePath = path.join(logDir, `${currentDate}.log`);
 
-// Define custom log format
-const format = winston.format.printf(({ level, message, timestamp }) => {
-  const color = colors[level as Level] || ((msg: string) => msg);
-  return `${chalk.gray(timestamp)} ${color(level)}: ${message}`;
-});
+const format = winston.format.printf(
+  ({ level, message, timestamp, ...metadata }) => {
+    const color = colors[level as Level] || ((msg: string) => msg);
+    let logMessage = `${chalk.gray(timestamp)} ${color(level)}: ${message}`;
 
-// Create logger instance
+    if (Object.keys(metadata).length > 0) {
+      logMessage += ` ${JSON.stringify(metadata)}`;
+    }
+
+    return logMessage;
+  }
+);
+
 const logger = winston.createLogger({
   levels,
   level: "debug",
   format: winston.format.combine(
     winston.format.timestamp({ format: "YYYY-MM-DD HH:mm:ss" }),
-    winston.format.errors({ stack: true }), // include error stack
+    winston.format.errors({ stack: true }),
+    winston.format.splat(),
     format
   ),
   transports: [

@@ -4,7 +4,7 @@ import { types as mediasoupTypes } from "mediasoup";
 export interface Room {
   id: string;
   hostUserId: string; // UUID of the host
-  createdBy: string; 
+  createdBy: string;
   participants: Map<
     string,
     {
@@ -29,5 +29,4 @@ export interface Room {
   createdAt: Date;
 }
 
-
-
+export type SocketHandler = (...args: any[]) => Promise<void> | void;

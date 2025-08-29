@@ -21,7 +21,7 @@ app.use(express.static(path.join(__dirname, "../public")));
 // log incoming requests
 app.use((req, res, next) => {
   logger.info(
-    `[API] ${req.method} ${req.originalUrl} - Body: ${JSON.stringify(req.body)}`
+    `[API] ${req.method} ${req.originalUrl} - Body: ${JSON.stringify(req.body)}`,
   );
   next();
 });
@@ -40,22 +40,24 @@ const rooms: Map<string, Room> = new Map();
 let worker: mediasoupTypes.Worker<mediasoupTypes.AppData>;
 let router: mediasoupTypes.Router<mediasoupTypes.AppData>;
 
+// create a room
 app.post("/api/rooms", (req, res) => {
   const { hostName, hostUserId } = req.body;
-  if (!hostName) {
+  if (!hostName || !hostUserId) {
     logger.warn(
-      `[API] Room creation failed: missing hostName. Body: ${JSON.stringify(
-        req.body
-      )}`
+      `[API] Room creation failed: missing hostName or hostUserId. Body: ${JSON.stringify(
+        req.body,
+      )}`,
     );
     return res.status(400).json({
       success: false,
-      message: "Host name is required",
+      message: "Host name and host user ID are required",
     });
   }
 
   const roomId = uuidv4().substring(0, 8);
-  const finalHostUserId = hostUserId || uuidv4();
+  hostName;
+  const finalHostUserId = hostUserId;
 
   const room: Room = {
     id: roomId,
@@ -73,15 +75,7 @@ app.post("/api/rooms", (req, res) => {
   rooms.set(roomId, room);
 
   logger.info(
-    `[ROOM] Created: ${roomId} by ${hostName} (${finalHostUserId}) | Total rooms: ${rooms.size}`
-  );
-  logger.debug(
-    `[ROOM] State: ${JSON.stringify({
-      id: roomId,
-      hostUserId: finalHostUserId,
-      participants: [],
-      createdAt: room.createdAt,
-    })}`
+    `[ROOM] Created: ${roomId} by ${hostName} (${finalHostUserId}) | Total rooms: ${rooms.size}`,
   );
 
   res.json({
@@ -92,13 +86,14 @@ app.post("/api/rooms", (req, res) => {
   });
 });
 
+//get room by id
 app.get("/api/rooms/:roomId", (req, res) => {
   const { roomId } = req.params;
   if (!roomId) {
     logger.warn(
       `[API] Room details request missing roomId. Params: ${JSON.stringify(
-        req.params
-      )}`
+        req.params,
+      )}`,
     );
     return res.status(400).json({
       success: false,
@@ -116,14 +111,6 @@ app.get("/api/rooms/:roomId", (req, res) => {
   }
 
   logger.info(`[ROOM] Details requested for roomId: ${roomId}`);
-  logger.debug(
-    `[ROOM] State: ${JSON.stringify({
-      id: room.id,
-      hostUserId: room.hostUserId,
-      participants: Array.from(room.participants.values()),
-      createdAt: room.createdAt,
-    })}`
-  );
 
   res.json({
     success: true,
@@ -145,6 +132,7 @@ app.get("/api/rooms/:roomId", (req, res) => {
   });
 });
 
+// list of all rooms
 app.get("/api/rooms", (req, res) => {
   const activeRooms = Array.from(rooms.entries()).map(([id, room]) => ({
     id,
@@ -160,6 +148,7 @@ app.get("/api/rooms", (req, res) => {
   });
 });
 
+// delete a room by id
 app.delete("/api/rooms/:roomId", (req, res) => {
   const { roomId } = req.params;
   const { userId } = req.body;
@@ -167,8 +156,8 @@ app.delete("/api/rooms/:roomId", (req, res) => {
   if (!roomId || !userId) {
     logger.warn(
       `[API] Room deletion failed: missing roomId or userId. Params: ${JSON.stringify(
-        req.params
-      )}, Body: ${JSON.stringify(req.body)}`
+        req.params,
+      )}, Body: ${JSON.stringify(req.body)}`,
     );
     return res.status(400).json({
       success: false,
@@ -179,7 +168,7 @@ app.delete("/api/rooms/:roomId", (req, res) => {
   const room = rooms.get(roomId);
   if (!room) {
     logger.warn(
-      `[API] Room deletion failed: room not found for roomId: ${roomId}`
+      `[API] Room deletion failed: room not found for roomId: ${roomId}`,
     );
     return res.status(404).json({
       success: false,
@@ -189,7 +178,7 @@ app.delete("/api/rooms/:roomId", (req, res) => {
 
   if (room.hostUserId !== userId) {
     logger.warn(
-      `[API] Room deletion denied: user ${userId} is not host of room ${roomId}`
+      `[API] Room deletion denied: user ${userId} is not host of room ${roomId}`,
     );
     return res.status(403).json({
       success: false,
@@ -209,7 +198,7 @@ app.delete("/api/rooms/:roomId", (req, res) => {
 
   rooms.delete(roomId);
   logger.info(
-    `[ROOM] Deleted: ${roomId} by host ${userId} | Remaining rooms: ${rooms.size}`
+    `[ROOM] Deleted: ${roomId} by host ${userId} | Remaining rooms: ${rooms.size}`,
   );
 
   res.json({
@@ -218,14 +207,15 @@ app.delete("/api/rooms/:roomId", (req, res) => {
   });
 });
 
+// get rooms by userId
 app.get("/api/users/:userId/rooms", (req, res) => {
   const { userId } = req.params;
 
   if (!userId) {
     logger.warn(
       `[API] User rooms request missing userId. Params: ${JSON.stringify(
-        req.params
-      )}`
+        req.params,
+      )}`,
     );
     return res.status(400).json({
       success: false,
@@ -247,12 +237,12 @@ app.get("/api/users/:userId/rooms", (req, res) => {
       createdBy: room.createdBy,
       isHost: room.hostUserId === userId,
       isActive: Array.from(room.participants.values()).some(
-        (p) => p.userId === userId
+        (p) => p.userId === userId,
       ),
     }));
 
   logger.info(
-    `[API] User rooms requested for userId: ${userId} | Found: ${userRooms.length}`
+    `[API] User rooms requested for userId: ${userId} | Found: ${userRooms.length}`,
   );
 
   res.json({
@@ -261,12 +251,12 @@ app.get("/api/users/:userId/rooms", (req, res) => {
   });
 });
 
-// init MediaSoup
+// init MSoup
 (async () => {
   try {
     worker = await createWorker();
     router = await createRouter(worker);
-    await registerMediasoupHandlers(mediasoupNamespace, worker, router, rooms);
+    registerMediasoupHandlers(mediasoupNamespace, worker, router, rooms);
     logger.info("MediaSoup initialized successfully");
   } catch (error) {
     logger.error("Failed to initialize MediaSoup:", error);
@@ -307,17 +297,17 @@ app.get("/api/users/:userId/rooms", (req, res) => {
 //   }
 // }, 60000);
 
-setInterval(() => {
-  const activeRoomsCount = rooms.size;
-  const totalParticipants = Array.from(rooms.values()).reduce(
-    (sum, room) => sum + room.participants.size,
-    0
-  );
+// setInterval(() => {
+//   const activeRoomsCount = rooms.size;
+//   const totalParticipants = Array.from(rooms.values()).reduce(
+//     (sum, room) => sum + room.participants.size,
+//     0
+//   );
 
-  logger.info(
-    `Active rooms: ${activeRoomsCount}, Total participants: ${totalParticipants}`
-  );
-}, 5000); 
+//   logger.info(
+//     `Active rooms: ${activeRoomsCount}, Total participants: ${totalParticipants}`
+//   );
+// }, 5000);
 
 server.listen(port, () => {
   logger.info(`Server running at http://localhost:${port}`);

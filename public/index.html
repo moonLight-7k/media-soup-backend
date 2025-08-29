@@ -3,343 +3,141 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>MediaSoup App</title>
+    <title>G-Meet | Video Conference</title>
     <link rel="stylesheet" href="styles.css" />
-    <style>
-      body {
-        font-family: Arial, sans-serif;
-        display: flex;
-        justify-content: center;
-        align-items: center;
-        height: 100vh;
-        margin: 0;
-        background-color: #f0f0f0;
-      }
-
-      #join-screen {
-        background: #fff;
-        padding: 20px;
-        border-radius: 5px;
-        box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
-      }
-
-      #join-screen h2 {
-        margin-top: 0;
-      }
-
-      #join-screen input {
-        width: 100%;
-        padding: 10px;
-        margin: 10px 0;
-        border: 1px solid #ccc;
-        border-radius: 5px;
-      }
-
-      #join-button {
-        width: 100%;
-        padding: 10px;
-        background: #007bff;
-        border: none;
-        border-radius: 5px;
-        color: #fff;
-        font-size: 16px;
-        cursor: pointer;
-      }
-      #controls {
-        position: fixed;
-        bottom: 20px;
-        left: 50%;
-        transform: translateX(-50%);
-        display: flex;
-        gap: 10px;
-      }
-
-      #controls button {
-        padding: 10px;
-        border: none;
-        border-radius: 5px;
-        background: #007bff;
-        color: #fff;
-        font-size: 16px;
-        cursor: pointer;
-      }
-
-      #controls button:hover {
-        background: #0056b3;
-      }
-
-      #participant-view {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 10px;
-        padding: 20px;
-        justify-content: center;
-      }
-
-      #participant-view video {
-        width: 200px;
-        height: 150px;
-        background: #000;
-        border-radius: 5px;
-      }
-    </style>
+    <link
+      rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css"
+    />
   </head>
   <body>
-    <div id="join-screen">
-      <h2>Join Room</h2>
-      <input type="text" id="username" placeholder="Enter your name" />
-      <input type="text" id="room-id" placeholder="Enter room ID" />
-      <button id="join-button">Join</button>
-    </div>
-    <div id="controls" style="display: none">
-      <div id="controls" style="display: none">
-        <button id="mute-button">Mute</button>
-        <button id="video-button">Stop Video</button>
-        <button id="leave-button">Leave Room</button>
+    <div id="app">
+      <!-- Welcome Screen -->
+      <div id="welcome-screen" class="screen active">
+        <div class="container">
+          <h1>G-Meet</h1>
+          <p class="tagline">Secure video meetings for everyone</p>
+
+          <div class="actions">
+            <div class="action-card">
+              <h3>Create a new meeting</h3>
+              <form id="create-room-form">
+                <input
+                  type="text"
+                  id="host-name"
+                  placeholder="Your name"
+                  required
+                />
+                <button type="submit" class="btn primary">
+                  <i class="fas fa-video"></i> New Meeting
+                </button>
+              </form>
+            </div>
+
+            <div class="action-card">
+              <h3>Join a meeting</h3>
+              <form id="join-room-form">
+                <input
+                  type="text"
+                  id="join-name"
+                  placeholder="Your name"
+                  required
+                />
+                <input
+                  type="text"
+                  id="room-id"
+                  placeholder="Room ID"
+                  required
+                />
+                <button type="submit" class="btn secondary">
+                  <i class="fas fa-sign-in-alt"></i> Join Meeting
+                </button>
+              </form>
+            </div>
+          </div>
+
+          <div id="active-rooms" class="rooms-list">
+            <h3>Active Rooms</h3>
+            <div id="rooms-container">
+              <p class="loading">Loading available rooms...</p>
+            </div>
+          </div>
+        </div>
       </div>
+
+      <!-- Meeting Room Screen -->
+      <div id="room-screen" class="screen">
+        <div class="room-container">
+          <div class="room-header">
+            <div class="room-info">
+              <h2 id="room-id-display">Room:</h2>
+              <span id="participant-count">0 participants</span>
+            </div>
+            <div class="room-controls">
+              <button id="invite-btn" class="control-btn">
+                <i class="fas fa-user-plus"></i>
+                <span>Invite</span>
+              </button>
+              <button id="leave-btn" class="control-btn danger">
+                <i class="fas fa-phone-slash"></i>
+                <span>Leave</span>
+              </button>
+            </div>
+          </div>
+
+          <div class="video-container" id="videos-container">
+            <div class="local-video-wrapper">
+              <video id="local-video" autoplay muted playsinline></video>
+              <div class="video-label">You</div>
+            </div>
+          </div>
+
+          <div class="media-controls">
+            <button id="mic-btn" class="media-btn">
+              <i class="fas fa-microphone"></i>
+            </button>
+            <button id="camera-btn" class="media-btn">
+              <i class="fas fa-video"></i>
+            </button>
+            <button id="screen-share-btn" class="media-btn">
+              <i class="fas fa-desktop"></i>
+            </button>
+            <button id="chat-btn" class="media-btn">
+              <i class="fas fa-comments"></i>
+              <span id="unread-count" class="badge hidden">0</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Chat Panel -->
+        <div id="chat-panel" class="chat-panel">
+          <div class="chat-header">
+            <h3>Meeting Chat</h3>
+            <button id="close-chat" class="icon-btn">
+              <i class="fas fa-times"></i>
+            </button>
+          </div>
+          <div id="chat-messages" class="chat-messages"></div>
+          <form id="chat-form" class="chat-input">
+            <input
+              type="text"
+              id="chat-message"
+              placeholder="Type a message..."
+              required
+            />
+            <button type="submit" id="send-message">
+              <i class="fas fa-paper-plane"></i>
+            </button>
+          </form>
+        </div>
+      </div>
+
+      <!-- Notifications -->
+      <div id="notification-container"></div>
     </div>
-    <div id="participant-view" style="display: none">
-      <!-- Participant view will be added here -->
-    </div>
-    <script src="/socket.io/socket.io.js"></script>
 
-    <script>
-      // --- WebRTC + socket.io signaling implementation ---
-      const peers = {};
-      let localStream;
-      let socket;
-      let username;
-      let roomId;
-      let audioEnabled = true;
-      let videoEnabled = true;
-
-      document
-        .getElementById("join-button")
-        .addEventListener("click", async () => {
-          username = document.getElementById("username").value;
-          roomId = document.getElementById("room-id").value;
-
-          if (!username || !roomId) {
-            alert("Please enter your name and room ID");
-            return;
-          }
-
-          socket = io("/mediasoup");
-          console.log("Socket.io initialized");
-          socket.emit("joinRoom", { username, roomId });
-          console.log("Emitted joinRoom", { username, roomId });
-
-          document.getElementById("join-screen").style.display = "none";
-          console.log("UI updated for joining room");
-          document.getElementById("controls").style.display = "block";
-          document.getElementById("participant-view").style.display = "block";
-
-          try {
-            localStream = await navigator.mediaDevices.getUserMedia({
-              audio: true,
-              video: true,
-            });
-            console.log("Local media stream obtained");
-            addParticipantVideo("local", localStream);
-            console.log("Local video added to UI");
-          } catch (error) {
-            console.error("Error accessing media devices.", error);
-            alert(
-              "Could not access your camera and microphone. Please check your permissions."
-            );
-            return;
-          }
-
-          // Signal to server that we are ready
-          socket.emit("ready", { username, roomId });
-          console.log("Emitted ready", { username, roomId });
-
-          // Handle signaling
-          socket.on("offer", async ({ from, offer }) => {
-            console.log("Received offer from", from);
-            const peerConnection = createPeerConnection(from);
-            console.log("Created peerConnection for offer from", from);
-            await peerConnection.setRemoteDescription(
-              new RTCSessionDescription(offer)
-            );
-            console.log("Set remote description for offer from", from);
-            const answer = await peerConnection.createAnswer();
-            console.log("Created answer for", from);
-            await peerConnection.setLocalDescription(answer);
-            console.log("Set local description for answer to", from);
-            socket.emit("answer", { to: from, answer });
-            console.log("Emitted answer to", from);
-          });
-
-          socket.on("answer", async ({ from, answer }) => {
-            console.log("Received answer from", from);
-            if (peers[from]) {
-              await peers[from].setRemoteDescription(
-                new RTCSessionDescription(answer)
-              );
-              console.log("Set remote description for answer from", from);
-            }
-          });
-
-          socket.on("ice-candidate", ({ from, candidate }) => {
-            console.log("Received ICE candidate from", from, candidate);
-            if (peers[from]) {
-              peers[from].addIceCandidate(new RTCIceCandidate(candidate));
-              console.log("Added ICE candidate for", from);
-            }
-          });
-
-          socket.on("newParticipant", ({ id }) => {
-            console.log("New participant joined:", id);
-            if (id === username) return; // Don't connect to self
-            if (peers[id]) return; // Already connected
-            const peerConnection = createPeerConnection(id);
-            console.log("Created peerConnection for new participant", id);
-            peers[id] = peerConnection;
-            peerConnection.addStream(localStream);
-            console.log("Added local stream to peerConnection for", id);
-            peerConnection.createOffer().then((offer) => {
-              console.log("Created offer for", id);
-              peerConnection.setLocalDescription(offer);
-              console.log("Set local description for offer to", id);
-              socket.emit("offer", { to: id, offer });
-              console.log("Emitted offer to", id);
-            });
-          });
-
-          socket.on("participantLeft", (id) => {
-            console.log("Participant left:", id);
-            removeParticipantVideo(id);
-            console.log("Removed participant video for", id);
-            if (peers[id]) {
-              console.log("Closing peerConnection for", id);
-              peers[id].close();
-              delete peers[id];
-            }
-          });
-
-          socket.on("roomJoined", (data) => {
-            console.log("roomJoined event:", data);
-            console.log(`Joined room ${data.roomId} as ${data.username}`);
-          });
-
-          socket.on("connect_error", (error) => {
-            console.log("connect_error event:", error);
-            console.error("Connection error:", error);
-            alert("Connection failed. Please try again.");
-          });
-        });
-
-      function createPeerConnection(id) {
-        console.log("Creating RTCPeerConnection for", id);
-        const peerConnection = new RTCPeerConnection();
-        peerConnection.onicecandidate = (event) => {
-          console.log("ICE candidate event for", id, event.candidate);
-          if (event.candidate) {
-            socket.emit("ice-candidate", {
-              to: id,
-              candidate: event.candidate,
-            });
-          }
-        };
-        peerConnection.ontrack = (event) => {
-          console.log("ontrack event for", id, event.streams);
-          addParticipantVideo(id, event.streams[0]);
-          console.log("Added remote video for", id);
-        };
-        // For older browsers
-        peerConnection.onaddstream = (event) => {
-          console.log("onaddstream event for", id, event.stream);
-          addParticipantVideo(id, event.stream);
-          console.log("Added remote video (onaddstream) for", id);
-        };
-        // Add local tracks
-        if (localStream) {
-          localStream.getTracks().forEach((track) => {
-            console.log("Adding local track to peerConnection for", id, track);
-            console.log("PeerConnection stored for", id);
-            peerConnection.addTrack(track, localStream);
-          });
-        }
-        peers[id] = peerConnection;
-        return peerConnection;
-      }
-
-      function addParticipantVideo(id, stream) {
-        console.log("Adding participant video for", id, stream);
-        let videoElement = document.getElementById(id);
-        if (!videoElement) {
-          console.log("Creating video element for", id);
-          videoElement = document.createElement("video");
-          videoElement.id = id;
-          videoElement.autoplay = true;
-          document.getElementById("participant-view").appendChild(videoElement);
-        }
-        videoElement.srcObject = stream;
-        console.log("Set srcObject for video element", id);
-      }
-
-      function removeParticipantVideo(id) {
-        console.log("Removing participant video for", id);
-        const videoElement = document.getElementById(id);
-        if (videoElement) {
-          if (videoElement.srcObject) {
-            console.log("Stopping tracks for video element", id);
-            videoElement.srcObject.getTracks().forEach((track) => track.stop());
-          }
-          videoElement.remove();
-          console.log("Removed video element for", id);
-        }
-      }
-
-      document.getElementById("mute-button").addEventListener("click", () => {
-        console.log("Mute button clicked");
-        audioEnabled = !audioEnabled;
-        if (localStream) {
-          localStream.getAudioTracks()[0].enabled = audioEnabled;
-          console.log("Toggling audio track", audioEnabled);
-        }
-        document.getElementById("mute-button").textContent = audioEnabled
-          ? "Mute"
-          : "Unmute";
-        console.log("Mute button text updated", audioEnabled);
-      });
-
-      document.getElementById("video-button").addEventListener("click", () => {
-        console.log("Video button clicked");
-        videoEnabled = !videoEnabled;
-        if (localStream) {
-          localStream.getVideoTracks()[0].enabled = videoEnabled;
-          console.log("Toggling video track", videoEnabled);
-        }
-        document.getElementById("video-button").textContent = videoEnabled
-          ? "Stop Video"
-          : "Start Video";
-        console.log("Video button text updated", videoEnabled);
-      });
-
-      document.getElementById("leave-button").addEventListener("click", () => {
-        console.log("Leave button clicked");
-        if (socket) {
-          console.log("Emitting leaveRoom and disconnecting socket");
-          console.log("Stopping local stream tracks");
-          socket.emit("leaveRoom", { username, roomId });
-          socket.disconnect();
-        }
-        if (localStream) {
-          localStream.getTracks().forEach((track) => track.stop());
-        }
-        Object.keys(peers).forEach((id) => {
-          console.log("Closing peerConnection and removing video for", id);
-          peers[id].close();
-          removeParticipantVideo(id);
-        });
-        document.getElementById("join-screen").style.display = "block";
-        console.log("UI reset after leaving room");
-        document.getElementById("controls").style.display = "none";
-        document.getElementById("participant-view").style.display = "none";
-        document.getElementById("participant-view").innerHTML = "";
-      });
-    </script>
+    <script src="https://cdn.socket.io/4.8.1/socket.io.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/mediasoup-client@3.13.0/lib/mediasoupclient.min.js"></script>
+    <script src="script.js"></script>
   </body>
 </html>
